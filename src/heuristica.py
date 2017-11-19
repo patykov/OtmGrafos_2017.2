@@ -5,44 +5,55 @@ import time
 import numpy as np
 
 
-def draw_tree(g):
-    sub = GraphView(g, vfilt=g.vertex_properties['type'].a==1)
-    graph_draw(g, vertex_fill_color=g.vertex_properties['type'], vorder=g.vertex_properties['type'],
-        edge_color=g.edge_properties['weight'], 
-        output_size=(500, 500),
-        output="subgraph-iso-embed.pdf")
+def heuristica_1(g):
+    sub = GraphView(g, vfilt=g.vertex_properties['type'].a==1, efilt=g.edge_properties['used'].a==1)
+    paths = shortest_distance(g, weights=g.edge_properties['weight'])
+    count=0
+    connected, comp = is_connected(sub)
 
-def get_distance(g):
-    sub = GraphView(g, vfilt=g.vertex_properties['type'].a>0)
-    weight = sub.edge_properties['weight']
-    tree = min_spanning_tree(sub, weights=weight)
-    used_edges_weight = [e for i, e in enumerate(weight.a) if tree.a[i]]
-    return sum(used_edges_weight)
+    while (not connected):
+        used_v = [v for v in sub.vertices()]
+        for v in used_v:
+            print(comp[v])
+        wanted_paths = [[paths[i], comp[i]] for i in used_v]
+        [s, t] = get_min_path(wanted_paths, comp.a, used_v)
+        new_vertices, new_edges = shortest_path(g, g.vertex(s), g.vertex(t), weights=g.edge_properties['weight'])
+        for v in new_vertices:
+            if g.vertex_properties['type'][v] == 0:
+                g.vertex_properties['type'][v] = 2
+        for e in new_edges:
+            g.edge_properties['used'][e] = 1
+        sub = GraphView(g, vfilt=g.vertex_properties['type'].a>0, efilt=g.edge_properties['used'].a==1)
+        connected, comp = is_connected(sub)
+        print('It: {} vertices: {} edges: {}'. format(count, len([v for v in sub.vertices()]), len([e for e in sub.edges()])))
+        time.sleep(2)
+        # break
+        count+=1
 
-def LI(g):
-    v = [i for i in g.vertices() if g.vertex_properties['type'][i] == 0][0]
-    g.vertex_properties['type'][v] = 2
-    edges_weights = [g.edge_properties['weight'][e] for e in v.all_edges()]
-    if len(edges_weights) > 1:
-        sum_two_min = sum(sorted(edges_weights)[:2])
-        if sum_two_min < max(g.edge_properties['weight'].a):
-            return v, True
-        else:
-            return v, False
-    return v, False
+    print(min_spanning_tree(sub, weights=sub.edge_properties['weight']))
 
-def viable(g):
-    if not connected:
-        sub = GraphView(g, vfilt=g.vertex_properties['type'].a>0)
-        comp, hist = label_components(sub)
-        return is_connected(sub)
-    return True
+
+def get_min_path(wanted_paths, comps, used_v):
+    min_paths = []
+    for [p, comp] in wanted_paths:
+        pi = [[int(i), p_] for i, p_ in enumerate(p) if ((i in used_v) and (comps[i] != comp))]
+        s = min(pi, key=lambda x: x[1])
+        print(s)
+        pi.remove(s)
+        t = min(pi, key=lambda x: x[1])
+        print(t)
+        min_paths.append([[s[0],t[0]], t[1]])
+    min_path = min(min_paths, key=lambda x: x[1])
+    print(min_paths)
+    print(min_path, comps[min_path[0][0]], comps[min_path[0][1]])
+    return min_path[0]
+
 
 def is_connected(g):
     comp, hist = label_components(g)
-    if (len(np.unique(comp))==1):
-        return True
-    return False
+    if (len(np.unique(comp.a))==1):
+        return True, comp
+    return False, comp
 
 
 if __name__ == '__main__':
@@ -50,41 +61,11 @@ if __name__ == '__main__':
 
     start_time = time.time()
     g = loadGraph(graphPath)
+    g.edge_properties['used']  = g.new_edge_property("bool")
     after_load_graph = time.time()
 
-    # Starting
-    connected = False#is_connected(g)
-    fobj = get_distance(g)
-    L = [g.copy()]
-    count = 0
+    r1 = heuristica_1(g)
 
-    while len(L)>0:
-        # print('\nIteration {}'.format(count))
-        count+=1
-        # Choose a node
-        l = L.pop()
-        # Get LI
-        v, check = LI(l)
-        # Check if is a valid solution
-        if (check and viable(l)):
-            # print('Is viable')
-            fobj = min(fobj, get_distance(l))
-            # print(fobj)
-
-        not_seen = [i for i in l.vertices() if l.vertex_properties['type'][i] == 0]
-        if len(not_seen) > 0:
-            # Left
-            L.append(l.copy())
-            # Right
-            l.vertex_properties['type'][v] = -1
-            l.clear_vertex(v)
-            L.append(l)
-
-        if count%100==0:
-            print(count, fobj, len(not_seen))
-
-    # draw_tree(g)
-    print('Total iterations: {}, fobj: {}'.format(count, fobj))
     print("--- %s seconds --- end" % (time.time() - after_load_graph))
 
 
