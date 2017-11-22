@@ -1,0 +1,5 @@
+Total iterations: 9, Sol: 235.0
+--- 0.652204036713 seconds --- Load graph
+--- 4.9479470253 seconds --- Pre Processing
+--- 0.769264936447 seconds --- Heuristic
+--- 6.39099287987 seconds --- All
