@@ -144,9 +144,9 @@ if __name__ == '__main__':
     terminals = [v for v in g.vertices() if g.vertex_properties['type'][v]==1]
     h_g = g.copy()
     li_sup_global, h_count = heuristica_1(h_g, after_preprocessing, 10)
-    li_inf_global, next_v = LI_inferior(g)
+    li_inf_global, next_v = LI_inferior(h_g)
+    g_global = h_g
     start_g = g.copy()
-    g_global = start_g
     L = [start_g]
     count = 0
 

@@ -19,7 +19,7 @@ def heuristica_1(g, start_time, end_time):
     while (not connected) and (time.time()-start_time < end_time):
         used_v = [v for v in sub.vertices()]
 
-        # GRASP
+        # Randondly remove a vertex
         if (np.random.random() > 0.7):
             selected = np.random.choice(used_v)
             # Remove vertex from solution if its a steiner vertex
