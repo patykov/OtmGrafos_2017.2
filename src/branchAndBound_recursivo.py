@@ -1,11 +1,11 @@
 import argparse
 from graph_tool.all import *
 from load_graph import loadGraph
+from heuristica import heuristica_1
 import itertools
 import sys
 import time
 import numpy as np
-
 
 def draw_tree(tree):
     global output
@@ -46,45 +46,30 @@ def check_complete(g):
         return True
     return False
 
-def pre_processing(g):
-    # print('Edges: {}'.format(len(g.get_edges())))
-    # print('Verices: {}'.format(len([v for v in g.vertices() if g.vertex_properties['type'][v] >= 0])))
+def pre_processing(g, is_complete):
+    weight = g.edge_properties['weight']
+    v_type = g.vertex_properties['type']
+    # Dont need to apply it to a complete graph, nothing will change
+    if not is_complete:
+        vertices = [v for v in g.vertices() if v_type[v] != 1]
+        for v in vertices:
+            degree = v.out_degree()
+            # 1) Removing non-Terminal vertex with dregree 1.
+            if degree ==1:
+                g.clear_vertex(v)
+                v_type[v] = -1
+            # 2) Changing a non-Terminal vertex with dregree 2 to a new edge 
+            # with the corresponding weight of the removed edges from the vertex.
+            if degree == 2:
+                s, t = [e.target() for e in v.all_edges()]
+                new_weight = sum([weight[e] for e in v.all_edges()])
+                new_edge = g.add_edge(s,t)
+                weight[new_edge] = new_weight
+                g.clear_vertex(v)
+                v_type[v] = -1
 
-    vertices = [v for v in g.vertices() if g.vertex_properties['type'][v] != 1]
-    for v in vertices:
-        degree = v.out_degree()
-        # Removing non-Terminal vertex with dregree 1.
-        if degree ==1:
-            g.clear_vertex(v)
-            g.vertex_properties['type'][v] = -1
-        # Changing a non-Terminal vertex with dregree 2 to a new edge 
-        # with the corresponding weight of the removed edges from the vertex.
-        if degree == 2:
-            s, t = [e.target() for e in v.all_edges()]
-            new_weight = sum([g.edge_properties['weight'][e] for e in v.all_edges()])
-            new_edge = g.add_edge(s,t)
-            g.edge_properties['weight'][new_edge] = new_weight
-            g.clear_vertex(v)
-            g.vertex_properties['type'][v] = -1
-
-    # # Removing the most expensive edge on a cycle
-    # vertices = [v for v in g.vertices() if g.vertex_properties['type'][v] >= 0]
-    # to_remove = []
-    # for v in vertices:
-    #     paths = [p for p in all_paths(g, v, v) if len(p)>3]
-    #     edges = [list(itertools.chain(*[g.edge(pj, p[j+1], all_edges=True) for j, pj in enumerate(p[:-1])]))
-    #              for p in paths]
-    #     for e in edges:
-    #         if not any(ej in to_remove for ej in e):
-    #             selected = [ej for ej in e if g.edge_properties['weight'][ej] == max([g.edge_properties['weight'][ej] for ej in e])][0]
-    #             to_remove.append(selected)
-    # for e in to_remove:
-    #     g.remove_edge(e)
-
-    # print('Edges: {}'.format(len(g.get_edges())))
-    # print('Vertices: {}'.format(len([v for v in g.vertices() if g.vertex_properties['type'][v] >= 0])))
-
-def save_time(count, pre_proc, pos_proc, output, after_branch_bound, after_pos_processing):
+def save_time(count, after_branch_bound, after_pos_processing):
+    global pre_proc, pos_proc, output
     new_text = output+".txt"
     with open(new_text, 'w') as file:
         file.write('Total iterations: {}, lim_inf: {}, lim_sup: {}\n'.format(count, li_inf_global, li_sup_global))
@@ -96,7 +81,8 @@ def save_time(count, pre_proc, pos_proc, output, after_branch_bound, after_pos_p
             file.write("--- %s seconds --- Pos processing\n" % (after_pos_processing - after_branch_bound))
         file.write("--- %s seconds --- All" % (after_pos_processing - start_time))
 
-def pos_processing(li_sup_global, pos_proc):
+def pos_processing():
+    global li_sup_global, pos_proc
     sub = GraphView(g_global, vfilt=g_global.vertex_properties['type'].a>0)
     weight = sub.edge_properties['weight']
     tree = min_spanning_tree(sub, weights=weight, root=root) # Prim
@@ -119,14 +105,68 @@ def pos_processing(li_sup_global, pos_proc):
 
     return tree
 
-def close_and_save(li_sup_global, count, pre_proc, pos_proc, output):
+def close_and_save():
     after_branch_bound = time.time()
-    tree = pos_processing(li_sup_global, pos_proc)
+    tree = pos_processing()
     after_pos_processing = time.time()
-    save_time(count, pre_proc, pos_proc, output, after_branch_bound, after_pos_processing)
+    save_time(count, after_branch_bound, after_pos_processing)
     print('Drawing tree...')
     draw_tree(tree)
     sys.exit()
+
+def branch_and_bound(g):
+    global count
+    count +=1
+    if (time.time() - after_preprocessing) > myTime:
+        close_and_save()
+
+     # Get superior LI with vertices that HAVE to be in the solution {1, 2}
+    sub_sup = GraphView(g, vfilt=g.vertex_properties['type'].a>0)
+    li_sup = LI_superior(sub_sup)
+    # Get inferior LI with vertices that are not FORBIDDEN {0, 1, 2}
+    sub_inf = GraphView(g, vfilt=g.vertex_properties['type'].a>=0)
+    li_inf, next_v = LI_inferior(sub_inf)
+
+    # Check if is a valid solution
+    if (is_complete or li_sup['is_viable']):
+        global li_sup_global, li_inf_global, g_global
+        # Has to update the global limits because its a new best solution
+        if li_sup['value'] < li_sup_global:
+            li_sup_global = li_sup['value']
+            li_inf_global = li_inf 
+            g_global = g.copy()
+        # Since it has the same upper limit, only updates if the inferior 
+        # limit its better than the last one
+        elif li_sup['value'] == li_sup_global:
+            if li_inf > li_inf_global:
+                li_inf_global = li_inf
+                g_global = g.copy()
+
+        # Found the best solution for the branch!
+        if li_sup['value'] <= li_inf:
+            return li_inf
+
+    not_seen = [i for i in g.vertices() if g.vertex_properties['type'][i] == 0]
+    if len(not_seen) > 0:
+        if next_v == None:
+            v_degrees = [vj.out_degree() for vj in not_seen]
+            next_v = not_seen[np.argmax(v_degrees)]
+
+        # # Left
+        sub_left = g.copy()
+        sub_left.vertex_properties['type'][next_v] = 2
+        li_inf_left = branch_and_bound(sub_left)
+
+        # # Right 
+        sub_right = g.copy()
+        sub_right.vertex_properties['type'][next_v] = -1
+        sub_right.clear_vertex(next_v)
+        li_inf_right = branch_and_bound(sub_right)
+
+        # Updates node inferior limit based on its children
+        li_inf = min(li_inf_right, li_inf_left)
+
+    return li_inf
 
 
 if __name__ == '__main__':
@@ -153,75 +193,21 @@ if __name__ == '__main__':
 
     # Pre-processing
     is_complete = check_complete(g)
-    if pre_proc and (not is_complete):
+    if pre_proc:
         print('Pre-processing...')
-        pre_processing(g)
+        pre_processing(g, is_complete)
     root = [v for v in g.vertices() if g.vertex_properties['type'][v] == 1][0]
     after_preprocessing = time.time()
 
     # Starting
     terminals = [v for v in g.vertices() if g.vertex_properties['type'][v]==1]
-    sub_sup = GraphView(g, vfilt=g.vertex_properties['type'].a>=0)
-    li_sup_global = LI_superior(sub_sup)['value']
+    h_g = g.copy()
+    li_sup_global, h_count = heuristica_1(h_g, after_preprocessing, 10)
     li_inf_global, next_v = LI_inferior(g)
-    start_g = g.copy()
-    g_global = start_g
-    L = [start_g]
+    g_global = g.copy()
+
     count = 0
-
     print('Branch and bound...')
-    while len(L) > 0:
-        if (time.time() - after_preprocessing) > myTime:
-            close_and_save(li_sup_global, count, pre_proc, pos_proc, output)
+    last_li_inf = branch_and_bound(g)
 
-        count +=1
-        l = L.pop()
-
-         # Get superior LI with vertices that HAVE to be in the solution {1, 2}
-        sub_sup = GraphView(l, vfilt=l.vertex_properties['type'].a>0)
-        li_sup = LI_superior(sub_sup)
-        # Get inferior LI with vertices that are not FORBIDDEN {0, 1, 2}
-        sub_inf = GraphView(l, vfilt=l.vertex_properties['type'].a>=0)
-        li_inf, next_v = LI_inferior(sub_inf)
-        need_to_explore = True
-        to_check = False
-
-        # Check if is a valid solution
-        if (is_complete or li_sup['is_viable']):
-            if li_sup['value'] < li_sup_global:
-                li_sup_global = li_sup['value']
-                li_inf_global = li_inf
-                g_global = l.copy()
-                to_check = True
-
-            elif li_sup['value'] == li_sup_global:
-                if li_inf > li_inf_global:
-                    li_inf_global = li_inf
-                    g_global = l.copy()
-                    to_check = True
-
-            # Found the best solution for the branch!
-            if li_sup['value'] <= li_inf:
-                need_to_explore = False
-                
-        if need_to_explore:
-            not_seen = [i for i in l.vertices() if l.vertex_properties['type'][i] == 0]
-            if len(not_seen) > 0:
-                if next_v == None:
-                    v_degrees = [vj.out_degree() for vj in not_seen]
-                    next_v = not_seen[np.argmax(v_degrees)]
-
-                # # Right 
-                sub_right = l.copy()
-                sub_right.vertex_properties['type'][next_v] = -1
-                sub_right.clear_vertex(next_v)
-                L.append(sub_right)
-
-                # # Left
-                sub_left = l.copy()
-                sub_left.vertex_properties['type'][next_v] = 2
-                L.append(sub_left)
-
-
-
-    close_and_save(li_sup_global, count, pre_proc, pos_proc, output)
+    close_and_save()

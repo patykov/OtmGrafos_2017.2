@@ -1,4 +1,0 @@
-Total iterations: 958, lim_inf: 463.0, lim_sup: 295.0
---- 0.0250608921051 seconds --- Load graph
---- 10.0091409683 seconds --- Branch and Bound
---- 10.0666258335 seconds --- All

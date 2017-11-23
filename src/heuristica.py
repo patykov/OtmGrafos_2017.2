@@ -6,30 +6,46 @@ import time
 import numpy as np
 
 
-def heuristica_1(g, myTime, after_load_graph):
-    # paths = shortest_distance(g, weights=g.edge_properties['weight'])
+def heuristica_1(g, start_time, end_time):
     count=0
-
-    sub = GraphView(g, vfilt=g.vertex_properties['type'].a>0, efilt=g.edge_properties['used'].a==1)
+    v_type = g.vertex_properties['type']
+    weight = g.edge_properties['weight']
+    e_used =  g.new_edge_property("bool")
+    terminals = [v for v in g.vertices() if v_type[v] == 1]
+    sub = GraphView(g, vfilt=v_type.a>0, efilt=e_used.a==1)
     connected, comp = is_connected(sub)
 
-    while (not connected) and (time.time()-after_load_graph < myTime):
-
+    while (not connected) and (time.time()-start_time < end_time):
         used_v = [v for v in sub.vertices()]
-        # wanted_paths = [[i, paths[i], comp[i]] for i in used_v]
-        [s, t] = get_min_paths2(g, used_v, comp)
-        # [s, t] = get_min_path(wanted_paths, comp.a, used_v)
-        new_vertices, new_edges = shortest_path(g, g.vertex(s), g.vertex(t), weights=g.edge_properties['weight'])
-        for v in new_vertices:
-            if g.vertex_properties['type'][v] == 0:
-                g.vertex_properties['type'][v] = 2
-        for e in new_edges:
-            g.edge_properties['used'][e] = 1
 
-        sub = GraphView(g, vfilt=g.vertex_properties['type'].a>0, efilt=g.edge_properties['used'].a==1)
+        # GRASP
+        if (np.random.random() > 0.6):
+            selected = np.random.choice(used_v)
+            # Remove vertex from solution if its a steiner vertex
+            if v_type[selected] == 2:
+                v_type[selected] = 0
+            # Remove edges from solution
+            for e in selected.all_edges():
+                e_used[e] = 0
+            used_v.remove(selected)
+        
+        [s, t] = get_min_paths2(g, used_v, comp, terminals)
+        new_vertices, new_edges = shortest_path(g, g.vertex(s), g.vertex(t), weights=weight)
+        for v in new_vertices:
+            if v_type[v] == 0:
+                v_type[v] = 2
+        for e in new_edges:
+            e_used[e] = 1
+
+        sub = GraphView(g, vfilt=v_type.a>0, efilt=e_used.a==1)
         connected, comp = is_connected(sub)
         count+=1
-    return count
+
+    final_sub = GraphView(g, efilt=e_used.a==1)
+    tree = min_spanning_tree(final_sub, weights=weight, root=terminals[0]) # Prim
+    used_edges_weight = [e for i, e in enumerate(weight.a) if tree.a[i]]
+
+    return sum(used_edges_weight), count
 
 def draw_tree(g):
     global output
@@ -42,10 +58,8 @@ def draw_tree(g):
         output_size=(500, 500),
         output=output+".pdf")
 
-def get_min_paths2(g, used_v, comp):
-    # sub = GraphView(g, vfilt=g.vertex_properties['type'].a>0)
+def get_min_paths2(g, used_v, comp, terminals):
     min_paths = []
-    # start = time.time()
     for v in used_v:
         myComp = comp[v]
         targets = [t for t in terminals if comp[t] != myComp]
@@ -59,7 +73,6 @@ def get_min_paths2(g, used_v, comp):
                     min_dist = min(paths, key=lambda x: x[1])
                     min_paths.append([[v, targets[min_dist[0]]], min_dist[1]])
     min_path = min(min_paths, key=lambda x: x[1])
-    # print("--- %s seconds --- all" % (time.time() - start))
     return min_path[0]
 
 def pre_processing(g):
@@ -79,7 +92,6 @@ def pre_processing(g):
             g.edge_properties['weight'][new_edge] = new_weight
             g.clear_vertex(v)
             g.vertex_properties['type'][v] = -1
-
 
 def is_connected(g):
     comp, hist = label_components(g)
@@ -112,8 +124,6 @@ if __name__ == '__main__':
     # Loading Graph
     start_time = time.time()
     g = loadGraph(graphPath)
-    g.edge_properties['used']  = g.new_edge_property("bool")
-    terminals = [v for v in g.vertices() if g.vertex_properties['type'][v] == 1]
     after_load_graph = time.time()
 
     # Pre-processing
@@ -123,17 +133,8 @@ if __name__ == '__main__':
     after_pre_processing = time.time()
 
     # Heuristica
-    count = heuristica_1(g, myTime, after_load_graph)
+    sol, count = heuristica_1(g, myTime, after_load_graph)
     after_heuristica = time.time()
-
-    # Getting steiner tree value
-    weight = g.edge_properties['weight']
-    sub = GraphView(g, efilt=g.edge_properties['used'].a==1)
-    tree = min_spanning_tree(sub, weights=weight, root=terminals[0]) # Prim
-    used_edges_weight = [e for i, e in enumerate(weight.a) if tree.a[i]]
-
-    sol = sum(used_edges_weight)
-    end_time = time.time()
 
     new_text = output+".txt"
     with open(new_text, 'w') as file:
@@ -142,7 +143,7 @@ if __name__ == '__main__':
         if pre_proc:
             file.write("--- %s seconds --- Pre Processing\n" % (after_pre_processing - after_load_graph))
         file.write("--- %s seconds --- Heuristic\n" % (after_heuristica - after_pre_processing))
-        file.write("--- %s seconds --- All" % (end_time - start_time))
+        file.write("--- %s seconds --- All" % (after_heuristica - start_time))
 
     draw_tree(g)
 
