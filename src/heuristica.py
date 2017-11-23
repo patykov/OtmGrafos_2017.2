@@ -8,9 +8,10 @@ import numpy as np
 
 def heuristica_1(g, start_time, end_time):
     count=0
+    g.edge_properties['used'] =  g.new_edge_property("bool")
+    e_used = g.edge_properties['used']
     v_type = g.vertex_properties['type']
     weight = g.edge_properties['weight']
-    e_used =  g.new_edge_property("bool")
     terminals = [v for v in g.vertices() if v_type[v] == 1]
     sub = GraphView(g, vfilt=v_type.a>0, efilt=e_used.a==1)
     connected, comp = is_connected(sub)
@@ -19,7 +20,7 @@ def heuristica_1(g, start_time, end_time):
         used_v = [v for v in sub.vertices()]
 
         # GRASP
-        if (np.random.random() > 0.6):
+        if (np.random.random() > 0.7):
             selected = np.random.choice(used_v)
             # Remove vertex from solution if its a steiner vertex
             if v_type[selected] == 2:
@@ -29,7 +30,7 @@ def heuristica_1(g, start_time, end_time):
                 e_used[e] = 0
             used_v.remove(selected)
         
-        [s, t] = get_min_paths2(g, used_v, comp, terminals)
+        [s, t] = get_min_paths(g, used_v, comp, terminals)
         new_vertices, new_edges = shortest_path(g, g.vertex(s), g.vertex(t), weights=weight)
         for v in new_vertices:
             if v_type[v] == 0:
@@ -41,11 +42,16 @@ def heuristica_1(g, start_time, end_time):
         connected, comp = is_connected(sub)
         count+=1
 
-    final_sub = GraphView(g, efilt=e_used.a==1)
-    tree = min_spanning_tree(final_sub, weights=weight, root=terminals[0]) # Prim
-    used_edges_weight = [e for i, e in enumerate(weight.a) if tree.a[i]]
+    sol = get_tree_sum(g, terminals[0])
 
-    return sum(used_edges_weight), count
+    return sol, count
+
+def get_tree_sum(g, root):
+    final_sub = GraphView(g, efilt=g.edge_properties['used'].a==1)
+    tree = min_spanning_tree(final_sub, weights=g.edge_properties['weight'], root=root) # Prim
+    used_edges_weight = [e for i, e in enumerate(g.edge_properties['weight'].a) if tree.a[i]]
+    return sum(used_edges_weight)
+
 
 def draw_tree(g):
     global output
@@ -58,7 +64,7 @@ def draw_tree(g):
         output_size=(500, 500),
         output=output+".pdf")
 
-def get_min_paths2(g, used_v, comp, terminals):
+def get_min_paths(g, used_v, comp, terminals):
     min_paths = []
     for v in used_v:
         myComp = comp[v]
@@ -73,7 +79,12 @@ def get_min_paths2(g, used_v, comp, terminals):
                     min_dist = min(paths, key=lambda x: x[1])
                     min_paths.append([[v, targets[min_dist[0]]], min_dist[1]])
     min_path = min(min_paths, key=lambda x: x[1])
-    return min_path[0]
+
+    # Randomly selecting a path with de lowest distance
+    same_dist = [s for s in min_paths if s[1] == min_path[1]]
+    selected_id = np.random.randint(0, len(same_dist))
+
+    return same_dist[selected_id][0]
 
 def pre_processing(g):
     vertices = [v for v in g.vertices() if g.vertex_properties['type'][v] != 1]
@@ -145,7 +156,7 @@ if __name__ == '__main__':
         file.write("--- %s seconds --- Heuristic\n" % (after_heuristica - after_pre_processing))
         file.write("--- %s seconds --- All" % (after_heuristica - start_time))
 
-    draw_tree(g)
+    # draw_tree(g)
 
 
     

@@ -1,4 +1,4 @@
-Total iterations: 16, Sol: 178.0
---- 0.0354900360107 seconds --- Load graph
---- 1.51734995842 seconds --- Heuristic
---- 1.58081507683 seconds --- All
+Total iterations: 26, Sol: 174.0
+--- 0.0382580757141 seconds --- Load graph
+--- 2.69017505646 seconds --- Heuristic
+--- 2.76386594772 seconds --- All
